@@ -110,6 +110,8 @@ protected:
 public:
   static constexpr size_t MIN_OUTER_SIZE = align_up(
       BlockRef::HEADER_SIZE + sizeof(FreeList::Node), BlockRef::MIN_ALIGN);
+  static constexpr size_t MIN_INNER_SIZE =
+      MIN_OUTER_SIZE - BlockRef::HEADER_SIZE + BlockRef::PREV_FIELD_SIZE;
 
   LIBC_INLINE TLSFFreeStoreImpl() = default;
   LIBC_INLINE TLSFFreeStoreImpl(const TLSFFreeStoreImpl &other) = delete;
@@ -124,6 +126,7 @@ public:
     return find_and_remove_fit(size);
   }
   LIBC_INLINE BlockRef find_and_remove_fit(size_t size);
+  LIBC_INLINE static constexpr size_t size_to_bit_index(size_t size);
 
 protected:
   LIBC_INLINE static bool too_small(BlockRef block) {
@@ -135,7 +138,6 @@ protected:
   FreeTrie trie{};
   FreeList overflow_list{};
 
-  LIBC_INLINE static constexpr size_t size_to_bit_index(size_t size);
   LIBC_INLINE void set_bit(size_t bit_index);
   LIBC_INLINE void clear_bit(size_t bit_index);
   LIBC_INLINE bool get_bit(size_t bit_index) const;
@@ -147,8 +149,14 @@ protected:
 template <typename CONFIG>
 LIBC_INLINE constexpr size_t
 TLSFFreeStoreImpl<CONFIG>::size_to_bit_index(size_t size) {
-  if (size <= (EXP_BASE << UNIT_SIZE_LOG2))
+  if (size <= (EXP_BASE << UNIT_SIZE_LOG2)) {
+    if constexpr (CONFIG::UNIT_SIZE == BlockRef::MIN_ALIGN) {
+      if (size <= MIN_INNER_SIZE)
+        return 0;
+      return ((size - MIN_INNER_SIZE - 1) >> UNIT_SIZE_LOG2) + 1;
+    }
     return size >> UNIT_SIZE_LOG2;
+  }
 
   size_t size_ilog2 = static_cast<size_t>(cpp::bit_width(size) - 1);
   size_t exp_offset = (size_ilog2 - UNIT_SIZE_LOG2 - EXP_BASE_LOG2 - 1)
@@ -206,8 +214,13 @@ TLSFFreeStoreImpl<CONFIG>::find_first_bit_set_after(size_t bit_index) const {
 template <typename CONFIG>
 LIBC_INLINE constexpr size_t
 TLSFFreeStoreImpl<CONFIG>::index_to_min_size(size_t index) {
-  if (index <= EXP_BASE)
+  if (index <= EXP_BASE) {
+    if constexpr (CONFIG::UNIT_SIZE == BlockRef::MIN_ALIGN) {
+      return index == 0 ? 0
+                        : MIN_INNER_SIZE + (index - 1) * CONFIG::UNIT_SIZE + 1;
+    }
     return index << UNIT_SIZE_LOG2;
+  }
 
   size_t local_index = index - EXP_BASE;
   size_t exp_index = local_index >> CONFIG::NUM_STEP_BITS;
@@ -317,19 +330,19 @@ TLSFFreeStoreImpl<CONFIG>::remove_first_fit_in_list(size_t index, size_t size) {
 template <typename CONFIG>
 LIBC_INLINE BlockRef
 TLSFFreeStoreImpl<CONFIG>::find_and_remove_fit(size_t size) {
+
+  size_t bit_index = size_to_bit_index(size);
+
   // Fast path for small linear bins if UNIT_SIZE == MIN_ALIGN
   if constexpr (CONFIG::UNIT_SIZE == BlockRef::MIN_ALIGN) {
-    size_t index = align_up(size, CONFIG::UNIT_SIZE) >> UNIT_SIZE_LOG2;
-    if (LIBC_LIKELY(index <= EXP_BASE && get_bit(index))) {
-      BlockRef block = free_lists[index].front();
-      free_lists[index].pop();
-      if (free_lists[index].empty())
-        clear_bit(index);
+    if (LIBC_LIKELY(bit_index <= EXP_BASE && get_bit(bit_index))) {
+      BlockRef block = free_lists[bit_index].front();
+      free_lists[bit_index].pop();
+      if (free_lists[bit_index].empty())
+        clear_bit(bit_index);
       return block;
     }
   }
-
-  size_t bit_index = size_to_bit_index(size);
 
   if (LIBC_UNLIKELY(bit_index >= TOTAL_BITS - 1)) {
     if constexpr (USE_TRIE)

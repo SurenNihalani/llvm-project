@@ -128,7 +128,7 @@ TEST(LlvmLibcFreeStore, IndexToMinSize) {
   EXPECT_EQ(min_size_0, static_cast<size_t>(0));
 
   constexpr size_t min_size_1 = FreeStore::index_to_min_size(1);
-  EXPECT_EQ(min_size_1, static_cast<size_t>(BlockRef::MIN_ALIGN));
+  EXPECT_EQ(min_size_1, static_cast<size_t>(FreeStore::MIN_INNER_SIZE + 1));
 
   size_t prev_size = 0;
   for (size_t i = 1; i < 64; ++i) {
