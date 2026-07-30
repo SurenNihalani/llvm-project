@@ -524,6 +524,7 @@ static void fillAMDGCNFeatureMap(StringRef GPU, const Triple &T,
     Features["lerp-inst"] = true;
     Features["sad-insts"] = true;
     Features["qsad-insts"] = true;
+    Features["msad-insts"] = true;
     Features["cvt-pknorm-vop2-insts"] = true;
     Features["cvt-pknorm-vop3-insts"] = true;
     Features["image-insts"] = true;
