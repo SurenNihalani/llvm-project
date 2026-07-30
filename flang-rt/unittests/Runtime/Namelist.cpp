@@ -337,11 +337,14 @@ TEST(NamelistTests, RealValueForInt) {
 TEST(NamelistTests, EmptyValueForScalar) {
   // logical :: l = .false. ; integer :: k = 42
   //   &nml l= k=7/
-  // The empty assignment `l=` should leave l at its .false. default and
-  // parsing should continue with k=7.  Regression test for a bug where
-  // scalar namelist items disabled the IsNamelistNameOrSlash guard in
-  // Edit*Input, so l's parse consumed the `k` on the next token and
-  // signalled "Bad character 'k' in LOGICAL input field".
+  // Exercises Flang's NAMELIST extension that accepts an empty scalar
+  // assignment (F2023 13.11.3.2 requires a value; nvfortran / gfortran
+  // treat the empty form as "keep current value").  Here `l=` leaves l
+  // at .false. and parsing continues with k=7.  Before the extension
+  // was implemented, scalar namelist items disabled the
+  // IsNamelistNameOrSlash guard in Edit*Input, so l's parse would
+  // consume the `k` token and signal "Bad character 'k' in LOGICAL
+  // input field".
   OwningPtr<Descriptor> lDesc{
       MakeArray<TypeCategory::Logical, sizeof(std::uint8_t)>(
           std::vector<int>{}, std::vector<std::uint8_t>{false})};
@@ -375,11 +378,11 @@ TEST(NamelistTests, EmptyValueForScalar) {
 TEST(NamelistTests, EmptyValueForArray) {
   // integer :: k=1 ; integer :: arr(3)=[10,20,30] ; integer :: m=2
   //   &nml k=100 arr= m=200/
-  // The empty assignment `arr=` should leave the array at its default and
-  // parsing should continue with m=200.  This case worked before the
-  // `rank() > 0 ? &group : nullptr` filter was widened, but is guarded
-  // here to make sure widening the pointer for scalars didn't regress the
-  // short-array end-of-values detection.
+  // Array items already accepted the empty form as an end-of-values
+  // marker before the scalar extension landed; this test guards that
+  // path so widening the IsNamelistNameOrSlash pointer for scalars
+  // preserves the existing array short-value / end-of-values
+  // detection.
   OwningPtr<Descriptor> kDesc{
       MakeArray<TypeCategory::Integer, static_cast<int>(sizeof(int))>(
           std::vector<int>{}, std::vector<int>{1})};
@@ -419,11 +422,12 @@ TEST(NamelistTests, EmptyScalarBetweenArrays) {
   // integer :: arr1(3)=[10,20,30] ; logical :: l=.false. ;
   // integer :: arr2(3)=[40,50,60]
   //   &nml arr1=100 200 300 l= arr2=400 500 600/
-  // The empty assignment `l=` sits between two full array assignments.
-  // arr1 must be fully read (three values), then l retains its default
-  // (empty scalar), then arr2 must be fully read.  Exercises the
-  // interaction between the widened scalar guard and the array
-  // short-value / end-of-values detection.
+  // The empty scalar assignment `l=` sits between two full array
+  // assignments.  arr1 must be fully read (three values), then l
+  // retains its default under the empty-scalar extension, then arr2
+  // must be fully read.  Exercises the interaction between the scalar
+  // extension and the pre-existing array short-value / end-of-values
+  // detection.
   OwningPtr<Descriptor> arr1Desc{
       MakeArray<TypeCategory::Integer, static_cast<int>(sizeof(int))>(
           std::vector<int>{3}, std::vector<int>{10, 20, 30})};
